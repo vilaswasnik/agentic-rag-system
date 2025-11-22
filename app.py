@@ -174,6 +174,38 @@ def upload_and_process_documents(files, progress=gr.Progress()):
         return f"❌ Error during upload: {str(e)}"
 
 
+def get_uploaded_documents():
+    """Get list of uploaded documents with details."""
+    try:
+        files_in_data = []
+        if os.path.exists(DATA_DIR):
+            files_in_data = [f for f in os.listdir(DATA_DIR) if not f.startswith('.')]
+        
+        if not files_in_data:
+            return "### 📁 Currently Uploaded Documents\n\n*No documents uploaded yet. Upload documents above to get started!*"
+        
+        # Create a table of uploaded files
+        doc_list = "### 📁 Currently Uploaded Documents\n\n"
+        doc_list += f"**Total Files:** {len(files_in_data)}\n\n"
+        doc_list += "| # | Filename | Size | Type |\n"
+        doc_list += "|---|----------|------|------|\n"
+        
+        for idx, filename in enumerate(sorted(files_in_data), 1):
+            filepath = os.path.join(DATA_DIR, filename)
+            size_bytes = os.path.getsize(filepath)
+            size_kb = size_bytes / 1024
+            size_str = f"{size_kb:.1f} KB" if size_kb < 1024 else f"{size_kb/1024:.1f} MB"
+            file_ext = Path(filename).suffix.upper()
+            doc_list += f"| {idx} | {filename} | {size_str} | {file_ext} |\n"
+        
+        doc_list += f"\n*These documents are embedded and available for queries.*"
+        
+        return doc_list
+        
+    except Exception as e:
+        return f"❌ Error retrieving documents: {str(e)}"
+
+
 def get_stats():
     """Get system statistics."""
     try:
@@ -284,6 +316,12 @@ with gr.Blocks(title="Agentic RAG System") as demo:
                 """
             )
             
+            # Show currently uploaded documents
+            doc_list_display = gr.Markdown(value=get_uploaded_documents())
+            refresh_docs_btn = gr.Button("🔄 Refresh Document List", size="sm")
+            
+            gr.Markdown("---")
+            
             with gr.Row():
                 file_upload = gr.File(
                     label="Select Files to Upload",
@@ -294,10 +332,20 @@ with gr.Blocks(title="Agentic RAG System") as demo:
             upload_btn = gr.Button("Upload & Process", variant="primary", size="lg")
             upload_output = gr.Markdown(label="Upload Status")
             
+            # Refresh document list after upload
             upload_btn.click(
                 fn=upload_and_process_documents,
                 inputs=file_upload,
                 outputs=upload_output
+            ).then(
+                fn=get_uploaded_documents,
+                outputs=doc_list_display
+            )
+            
+            # Manual refresh button
+            refresh_docs_btn.click(
+                fn=get_uploaded_documents,
+                outputs=doc_list_display
             )
         
         # Tab 3: Document Summary

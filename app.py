@@ -4,6 +4,10 @@ Graphical User Interface for the Agentic RAG System using Gradio.
 import gradio as gr
 from advanced_rag import AdvancedRAGSystem
 import time
+import os
+import shutil
+from pathlib import Path
+from src.document_processor import DocumentProcessor
 
 # Initialize the RAG system globally
 print("Initializing RAG System...")
@@ -13,6 +17,13 @@ rag_system = AdvancedRAGSystem(
     search_k=1
 )
 print("✓ RAG System ready!")
+
+# Initialize document processor
+doc_processor = DocumentProcessor(chunk_size=1000, chunk_overlap=200)
+
+# Ensure data directory exists
+DATA_DIR = "/workspaces/sample.ai/data/documents"
+os.makedirs(DATA_DIR, exist_ok=True)
 
 
 def format_sources(source_docs):
@@ -108,18 +119,85 @@ def summarize_documents(progress=gr.Progress()):
         return f"❌ Error generating summary: {str(e)}"
 
 
+def upload_and_process_documents(files, progress=gr.Progress()):
+    """Upload and process new documents."""
+    if not files:
+        return "⚠️ No files uploaded."
+    
+    try:
+        progress(0, desc="Starting upload...")
+        results = []
+        total_files = len(files)
+        
+        for idx, file in enumerate(files):
+            progress((idx / total_files), desc=f"Processing file {idx+1}/{total_files}...")
+            
+            # Get the file path from the uploaded file
+            file_path = file.name
+            filename = Path(file_path).name
+            
+            # Copy to data directory
+            destination = os.path.join(DATA_DIR, filename)
+            shutil.copy2(file_path, destination)
+            
+            # Process the document
+            try:
+                chunks = doc_processor.process_document(destination)
+                
+                # Add to vector store
+                documents = [
+                    {
+                        'text': chunk,
+                        'metadata': {'source': destination, 'chunk_id': i, 'file_name': filename}
+                    }
+                    for i, chunk in enumerate(chunks)
+                ]
+                
+                rag_system.vector_store.add_documents(documents)
+                
+                results.append(f"✅ **{filename}**: {len(chunks)} chunks added")
+            except Exception as e:
+                results.append(f"❌ **{filename}**: {str(e)}")
+        
+        progress(1.0, desc="Complete!")
+        
+        # Get updated stats
+        doc_count = rag_system.vector_store.get_collection_count()
+        summary = f"### 📊 Upload Complete\n\n"
+        summary += f"**Total chunks in system:** {doc_count}\n\n"
+        summary += "### Results:\n\n"
+        summary += "\n".join(results)
+        
+        return summary
+        
+    except Exception as e:
+        return f"❌ Error during upload: {str(e)}"
+
+
 def get_stats():
     """Get system statistics."""
     try:
         doc_count = rag_system.vector_store.get_collection_count()
+        
+        # List uploaded files
+        files_in_data = []
+        if os.path.exists(DATA_DIR):
+            files_in_data = [f for f in os.listdir(DATA_DIR) if not f.startswith('.')]
+        
+        files_list = "\n".join([f"  - {f}" for f in files_in_data]) if files_in_data else "  - None"
+        
         return f"""
 ### 📊 System Statistics
 
 - **Documents Indexed:** {doc_count} chunks
+- **Files in System:** {len(files_in_data)}
 - **Model:** gpt-3.5-turbo
 - **Embeddings:** text-embedding-3-small
 - **Search Type:** Similarity (top-1)
 - **Temperature:** 0 (deterministic)
+
+### 📁 Uploaded Files:
+{files_list}
         """
     except Exception as e:
         return f"Error retrieving stats: {str(e)}"
@@ -189,7 +267,40 @@ with gr.Blocks(title="Agentic RAG System") as demo:
             
             clear_btn.click(lambda: [], outputs=chatbot)
         
-        # Tab 2: Document Summary
+        # Tab 2: Upload Documents
+        with gr.Tab("📤 Upload Documents"):
+            gr.Markdown(
+                """
+                ### Upload New Documents
+                
+                Upload PDF, DOCX, or TXT files to automatically process and add them to the RAG system.
+                The documents will be:
+                1. Split into chunks
+                2. Embedded using OpenAI embeddings
+                3. Stored in ChromaDB vector store
+                4. Immediately available for queries
+                
+                **Supported formats:** PDF (.pdf), Word (.docx), Text (.txt)
+                """
+            )
+            
+            with gr.Row():
+                file_upload = gr.File(
+                    label="Select Files to Upload",
+                    file_count="multiple",
+                    file_types=[".pdf", ".docx", ".txt"]
+                )
+            
+            upload_btn = gr.Button("Upload & Process", variant="primary", size="lg")
+            upload_output = gr.Markdown(label="Upload Status")
+            
+            upload_btn.click(
+                fn=upload_and_process_documents,
+                inputs=file_upload,
+                outputs=upload_output
+            )
+        
+        # Tab 3: Document Summary
         with gr.Tab("📄 Document Summary"):
             gr.Markdown("Generate a comprehensive summary of all documents in the collection.")
             
@@ -201,9 +312,15 @@ with gr.Blocks(title="Agentic RAG System") as demo:
                 outputs=summary_output
             )
         
-        # Tab 3: System Info
+        # Tab 4: System Info
         with gr.Tab("ℹ️ System Info"):
-            gr.Markdown(get_stats())
+            stats_output = gr.Markdown(value=get_stats())
+            refresh_btn = gr.Button("🔄 Refresh Stats")
+            
+            refresh_btn.click(
+                fn=get_stats,
+                outputs=stats_output
+            )
             
             gr.Markdown(
                 """

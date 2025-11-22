@@ -1,0 +1,27 @@
+llm:
+  model: "gpt-4o-mini"
+  temperature: 0.7
+  max_tokens: 2000
+
+embedding:
+  model: "text-embedding-3-small"
+  chunk_size: 1000
+  chunk_overlap: 200
+
+vectorstore:
+  type: "chromadb"
+  persist_directory: "./vectorstore"
+  collection_name: "agentic_rag_collection"
+
+agents:
+  retriever:
+    name: "DocumentRetriever"
+    system_message: "You are a document retriever agent. Your job is to search through the vector database and retrieve relevant documents based on user queries."
+    
+  analyzer:
+    name: "ContentAnalyzer"
+    system_message: "You are a content analyzer agent. Your job is to analyze retrieved documents and extract relevant information to answer user questions accurately."
+    
+  orchestrator:
+    name: "Orchestrator"
+    system_message: "You are an orchestrator agent. You coordinate between the retriever and analyzer agents to provide comprehensive answers to user queries."
